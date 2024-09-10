@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "JoySerTrans": {
+      "commandName": "Project",
+      "commandLineArgs": "jst.exe a 1"
+    }
+  }
+}
