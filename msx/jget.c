@@ -1,6 +1,6 @@
 /*
     sdcc --code-loc 0x180 --data-loc 0 -mz80 --disable-warning 85 --disable-warning 196 
-         --no-std-crt0 crt0_msxdos_advanced.rel serial.rel jget.c
+         --no-std-crt0 crt0_msxdos_advanced.rel serial_slow.rel serial57k.rel jget.c
 
     hex2bin -e com jget.ihx (or: objcopy -I ihex -O binary jget.ihx jget.com)
 */
@@ -21,7 +21,7 @@ const char* strUsage=
     "Usage: jget <speed>\r\n"
     "\r\n"
     "Speed:\r\n"
-    "0 = 2400 BPS, 1 = 4800 BPS, 2 = 9600 BPS, 3 = 19200 BPS";
+    "0 = 2400 BPS, 1 = 4800 BPS, 2 = 9600 BPS, 3 = 19200 BPS, 4 = 57600 BPS";
     
 const char* strInvParam = "Invalid parameter";
 const char* strCRLF = "\r\n";
@@ -31,6 +31,7 @@ byte result;
 uint crc;
 ulong remaining;
 uint chunkSize;
+bool is57k;
 
 struct {
     char fileName[13];
@@ -41,7 +42,9 @@ struct {
 #define BUFFER ((byte*)0x8000)
 #define MAX_CHUNK_SIZE 1024
 
-#define SerialSendByte(value) { *BUFFER=value; SerialSend(BUFFER,1); }
+#define SerialReceive(address, length) (is57k ? SerialReceive57k(address, length) : SerialReceiveSlow(address, length))
+#define SerialSend(address, length)  { if(is57k) SerialSend57k(address, length); else SerialSendSlow(address, length); }
+#define SerialSendByte(value) { BUFFER[0]=value; BUFFER[1]=value; BUFFER[2]=value; BUFFER[3]=value; SerialSend(BUFFER,4); }
 
 bool IsDos2();
 void Terminate(byte errorCode);
@@ -61,7 +64,13 @@ int main(char** argv, int argc) {
         return 0;
     }
 
-    SerialSetSpeed(argv[0][0] - '0');
+    if(argv[0][0] == '4') {
+        is57k = true;
+    }
+    else {
+        is57k = false;
+        SerialSetSpeedSlow(argv[0][0] - '0');
+    }
 
     printf("Connecting... ");
     

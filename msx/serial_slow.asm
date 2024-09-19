@@ -1,4 +1,4 @@
-;N80 serial.asm -ofe rel
+;N80 serial_slow.asm -ofe rel
 
 ;RECEIVING AND SENDING RS232 DATA @9600 BITS/S  ON A STANDARD MSX 3.57MHz
 ;CPU Z80
@@ -11,10 +11,10 @@
 ;SETS CARRY BIT ON ERROR. A HOLDS ERROR CODE:
 ;A=1 RS232 LINE NOT HIGH,A=2 STARTBIT TIMEOUT
 
-;unsigned char SerialReceive(byte* address, int length)
+;unsigned char SerialReceiveSlow(byte* address, int length)
 ;HL=address, DE=length
 
-_SerialReceive::
+_SerialReceiveSlow::
 	;LD	D,B				;USE DE AS BYTE COUNTER, B AS BIT COUNTER AND C AS VDP STATUS REGISTER
 	;LD	E,C
 	LD	BC,#0099			;B=0 -> ~4 SECONDS TIME-OUT
@@ -94,10 +94,10 @@ _FINISH:
 ;SEND 'BC' BYTES FROM [HL] TO PIN6, JOY2
 ;MSX, Z80 3.58MHz
 
-;void SerialSend(byte* address, int length)
+;void SerialSendSlow(byte* address, int length)
 ;HL=address, DE=length
 
-_SerialSend::
+_SerialSendSlow::
     push de
     pop bc
 
@@ -156,9 +156,9 @@ DELAY:
 
 ;SET SPEED FRO SERIAL COMMUNICATION: A=0 2400 BPS, A=1 4800 BPS, A=2 9600 BPS, A=3 19200 BPS
 
-;void SerialSetSpeed(unsigned char speed)
+;void SerialSetSpeedSlow(unsigned char speed)
 
-_SerialSetSpeed::
+_SerialSetSpeedSlow::
 	AND	3
 	LD	HL,SERIALSPEEDDATA
 	LD	E,A
