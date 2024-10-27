@@ -6,37 +6,88 @@
     area _CODE  ;To force SDAS output format
 
 
+; Select joystick port 2 (default is port 1)
+
+_SelectPort2Slow::
+	;Change "RES 6,A" into "SET 6,A"
+	ld a,#F7
+	ld (_SelectJoyPortSlow1+1),a
+	ld (_SelectJoyPortSlow2+1),a
+	ld (_SelectJoyPortSlow3+1),a
+
+	ld a,#97
+	ld (_SetDataLineTo0Slow+1),a	;Change "RES 0,A" to "RES 2,A"
+	ld a,#D7
+	ld (_SetDataLineTo1Slow+1),a	;Change "SET 0,A" to "SET 2,A"
+
+	ld a,#EF
+	ld (_SetRTSto1Slow1+1),a		;Change "SET 4,A" to "SET 5,A"
+	ld (_SetRTSto1Slow2+1),a
+	ld a,#AF
+	ld (_SetRTSto0Slow1+1),a		;Change "RES 4,A" to "RES 5,A"
+	ld (_SetRTSto0Slow2+1),a
+
+	ret
+
+
 ;TRANSFER 'BC' BYTES FROM JOY1, 'UP', PIN1 TO (HL)
 ;MSX, Z80 3.58MHz
 ;SETS CARRY BIT ON ERROR. A HOLDS ERROR CODE:
-;A=1 RS232 LINE NOT HIGH,A=2 STARTBIT TIMEOUT
+;A=1 RTS TIMEOUT, A=2 STARTBIT TIMEOUT, A=3 STOPBIT ERROR
 
 ;unsigned char SerialReceiveSlow(byte* address, int length)
 ;HL=address, DE=length
 
 _SerialReceiveSlow::
-	;LD	D,B				;USE DE AS BYTE COUNTER, B AS BIT COUNTER AND C AS VDP STATUS REGISTER
-	;LD	E,C
-	LD	BC,#0099			;B=0 -> ~4 SECONDS TIME-OUT
+	LD	BC,#0099			;B=0 -> ~4 SECONDS TIME-OUT, C = VDP STATUS REGISTER
 
 	DI					;NO INTERRUPTS, TIME CRITICAL ROUTINE
 
 	LD	A,#0F			;PSG REGISTER 15, SELECT JOYSTICK PORT 2
 	OUT	(#A0),A
 	IN	A,(#A2)
-	res	6,A	;SELECT JOY1 !!!
+_SelectJoyPortSlow1:
+	res	6,A	;SELECT JOY1
+_SetRTSto0Slow1:
+	res	4,a	;Unset pin 8 for now (our RTS, CTS of peer) - we're not ready to receive data just yet
 	OUT	(#A1),A
 
 	LD	A,#0E			;SET PSG #14
 	OUT	(#A0),A
 
+	;Wait for the peer to set its RTS (thus signaling it wants to send data)
+
+_WAIT_RTS:	
+	in	a,(#a2)
+	and	2
+	jp	z,_SETRTS
+
+	in	f,(c)
+	jp	p,_WAIT_RTS
+
+	in	a,(#a2)
+	and	2
+	jp	z,_SETRTS
+
+	djnz	_WAIT_RTS
+	ld	a,1
+	scf
+	ei
+	ret
+
+_SETRTS:
+	LD	A,#0F
+	OUT	(#A0),A
 	IN	A,(#A2)
-	AND	#01
-	JR	NZ,_STARTBIT		;RS232 LINE SHOULD BE HIGH, OTHERWISE STOP
-	LD	A,#01			;ERROR, RS232 LINE NOT READY
-	SCF
-	EI
-	RET
+_SetRTSto1Slow1:
+	set 4,a	;Now set our RTS (signal CTS to peer) - we are ready to receive data
+	OUT	(#A1),A
+
+	LD	A,#0E			;SET PSG #14
+	OUT	(#A0),A
+
+	LD	BC,#0099
+
 _STARTBIT:
 	IN	A,(#A2)
 	AND	#01
@@ -86,30 +137,80 @@ _STOPBITERROR:
 	EI
 	RET
 _FINISH:
-	OR	A				;RESET CARRY FLAG
+	XOR	A				;RESET CARRY FLAG
 	EI
 	RET
 
+;--------------------------------------------------
 
 ;SEND 'BC' BYTES FROM [HL] TO PIN6, JOY2
 ;MSX, Z80 3.58MHz
 
-;void SerialSendSlow(byte* address, int length)
+;unsigned char SerialSendSlow(byte* address, int length)
 ;HL=address, DE=length
+;Output: A=0: ok, 1: remote CTS timeout
 
 _SerialSendSlow::
-    push de
-    pop bc
-
 	DI		;NO INTERRUPTS
+
+	LD	A,#0F	;SELECT PSG REG #15
+	OUT	(#A0),A
+
+	IN	A,(#A2)
+_SelectJoyPortSlow2:
+	res	6,A	;JOY1
+_SetRTSto1Slow2:
+	set	4,A	;Set our RTS (signals we want to send data)
+	out	(#A1),a
+
+	LD	A,#0E	;SET PSG #14
+	OUT	(#A0),A
+
+	LD	BC,#0099
+
+	;Wait for the peer to set its RTS (interpreted by us as CTS, we're good to send data)
+
+_WAIT_CTS:	
+	in	a,(#a2)
+	and	2
+	jp	z,_DOSEND
+
+	in	f,(c)
+	jp	p,_WAIT_CTS
+
+	in	a,(#a2)
+	and	2
+	jp	z,_DOSEND
+
+	djnz	_WAIT_CTS
+
+	ld	a,1
+	scf
+	ei
+	ret
+
+_DOSEND:
+	ld	a,#0F
+	out	(#A0),a
+	in	a,(#A2)
+_SetRTSto0Slow2:
+	res	4,a	;Clear our RTS
+	out	(#A1),a
+
+	ld	b,d
+	ld	c,e
+
 	LD	A,#0F	;SELECT PSG REG #15
 	OUT	(#A0),A
 	IN	A,(#A2)
 	PUSH	AF		;SAVE VALUE OF REG #15
-	res	6,A	;JOY1       ;!!!
-	RES	0,A	;TRIG1 LOW  ;!!!
+_SelectJoyPortSlow3:
+	res	6,A	;JOY1
+_SetDataLineTo0Slow:
+	RES	0,A	;TRIG1 LOW
 	LD	E,A		;0V VALUE (0) IN E
-	SET	0,A	;TRIG1 HIGH ;!!!
+_SetDataLineTo1Slow:
+	SET	0,A	;TRIG1 HIGH
 	LD	D,A		;5V VALUE (1) IN D
 _BYTELOOP:
 	PUSH	BC
@@ -145,6 +246,7 @@ _STOPBIT:
 _EXIT:
 	POP	AF
 	OUT	(#A1),A		;RESTORE REG #15 OF PSG
+	xor a
 	EI
 	RET
 

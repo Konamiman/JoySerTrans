@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+sdcc --code-loc 0x180 --data-loc 0 -mz80 --disable-warning 85 --disable-warning 196 --no-std-crt0 crt0_msxdos_advanced.rel serial_slow.rel serial57k.rel jget.c
+objcopy -I ihex -O binary jget.ihx jget.com

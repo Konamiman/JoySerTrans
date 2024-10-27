@@ -1,4 +1,6 @@
 
+//#define FIB_BUFFER 0xC000
+
 byte CreateFile(char* fileName) __naked
 {
     __asm
@@ -16,6 +18,53 @@ byte CreateFile(char* fileName) __naked
 
     ld a,c
     jp _Terminate
+
+    __endasm;
+}
+
+    byte FIB_BUFFER[64];
+
+byte CreateFileAndGetPath(char* fileName, char* filePath) __naked
+{
+    __asm
+
+    ;HL = *fileName
+    ;DE = *filePath
+
+    push de
+    ex de,hl
+    ld bc,#_FNEW ;B=0 (file attributes)
+    push ix
+    ld ix,#_FIB_BUFFER
+    call #DOS
+    pop ix
+    pop de
+    jp nz,_Terminate
+
+    ld a,(#_FIB_BUFFER+25)
+    dec a
+    add #65  ;'A'
+    ld (de),a
+    inc de
+    ld a,#58 ;':'
+    ld (de),a
+    inc de
+    ld a,#92 ;\
+    ld (de),a
+    inc de
+
+    ld c,#_WPATH
+    call #DOS
+    jp nz,_Terminate
+
+    ld de,#_FIB_BUFFER
+    xor a
+    ld c,#_OPEN
+    call #DOS
+    jp nz,_Terminate
+
+    ld a,b
+    ret
 
     __endasm;
 }

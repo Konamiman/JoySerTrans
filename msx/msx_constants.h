@@ -3,7 +3,11 @@
 
 // MSX BIOS routines
 
+#define RDSLT 0x000C
+#define CALSLT 0x001C
 #define ENASLT 0x0024
+#define CHGCPU 0x0180
+#define GETCPU 0x0183
 
 
 // MSX-DOS functions
@@ -12,18 +16,21 @@
 
 #define _TERM0 0
 #define _CONOUT 0x02
+#define _FNEW 0x42
 #define _OPEN 0x43
 #define _CREATE 0x44
 #define _CLOSE 0x45
 #define _READ 0x48
 #define _WRITE 0x49
 #define _SEEK 0x4A
+#define _WPATH 0x5E
 #define _TERM 0x62
 #define _DOSVER 0x6F
 
 
 // MSX work area
 
+#define MSXVER 0x002D
 #define H_CHPU 0xFDA4
 #define CSRX 0x0F3DD
 #define CSRY 0xF3DC
@@ -51,6 +58,7 @@
 #define RAMAD1 0xF342
 #define RAMAD2 0xF343
 #define SECBUF 0xF34D
+#define EXPTBL 0xFCC1
 
 
 /* Misc */

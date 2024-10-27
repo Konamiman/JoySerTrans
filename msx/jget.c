@@ -1,5 +1,5 @@
 /*
-    sdcc --code-loc 0x180 --data-loc 0 -mz80 --disable-warning 85 --disable-warning 196 
+    sdcc --code-loc 0x180 --data-loc 0 -mz80 --disable-warning 85 --disable-warning 196
          --no-std-crt0 crt0_msxdos_advanced.rel serial_slow.rel serial57k.rel jget.c
 
     hex2bin -e com jget.ihx (or: objcopy -I ihex -O binary jget.ihx jget.com)
@@ -14,24 +14,32 @@
 
 const char* strTitle=
     "Serial via joystick port file receiver v1.0\r\n"
-    "By Konamiman, 9/2024\r\n"
+    "By Konamiman, 11/2024\r\n"
     "\r\n";
     
 const char* strUsage=
-    "Usage: jget <speed>\r\n"
+    "Usage: jget <port> <speed> [<file path>]\r\n"
     "\r\n"
-    "Speed:\r\n"
-    "0 = 2400 BPS, 1 = 4800 BPS, 2 = 9600 BPS, 3 = 19200 BPS, 4 = 57600 BPS";
+    "<port>: 1 or 2\r\n"
+    "<speed> (BPS): 0 = 2400, 1 = 4800, 2 = 9600, 3 = 19200, 4 = 57600\r\n"
+    "<file path>: if omitted, received file name in current directory";
     
 const char* strInvParam = "Invalid parameter";
 const char* strCRLF = "\r\n";
 
+#define BUFFER ((byte*)0x8000)
+#define MAX_CHUNK_SIZE 1024
+#define CPU_Z80 0
+
 byte fileHandle = 0;
 byte result;
-uint crc;
+uint calculatedCrc;
 ulong remaining;
 uint chunkSize;
 bool is57k;
+bool isPort2;
+char* filePath = 0;
+byte currentCpu = CPU_Z80;
 
 struct {
     char fileName[13];
@@ -39,17 +47,17 @@ struct {
     uint crc;
 } header;
 
-#define BUFFER ((byte*)0x8000)
-#define MAX_CHUNK_SIZE 1024
-
-#define SerialReceive(address, length) (is57k ? SerialReceive57k(address, length) : SerialReceiveSlow(address, length))
-#define SerialSend(address, length)  { if(is57k) SerialSend57k(address, length); else SerialSendSlow(address, length); }
-#define SerialSendByte(value) { BUFFER[0]=value; BUFFER[1]=value; BUFFER[2]=value; BUFFER[3]=value; SerialSend(BUFFER,4); }
+#define SerialSend(address, length) (is57k ? SerialSend57k(address, length) : SerialSendSlow(address, length))
 
 bool IsDos2();
 void Terminate(byte errorCode);
 void TerminateCore(byte errorCode);
 uint crc16(byte* data_p, uint length);
+void SerialSendByte(byte value, bool printOnError);
+void ProcessReceiveError(byte value);
+byte SerialReceive(byte* address, int length);
+byte GetCpu();
+void SetCpu(byte cpu);
 
 int main(char** argv, int argc) {
     printf(strTitle);
@@ -59,36 +67,44 @@ int main(char** argv, int argc) {
         return 0;
     }
 
-    if(argc != 1) {
+    if(argc < 2) {
         printf(strUsage);
         return 0;
     }
 
-    if(argv[0][0] == '4') {
+    if(argv[1][0] == '4') {
         is57k = true;
     }
     else {
         is57k = false;
-        SerialSetSpeedSlow(argv[0][0] - '0');
+        SerialSetSpeedSlow(argv[1][0] - '0');
     }
 
+    if(argv[0][0] == '2') {
+        if(is57k) {
+            SelectPort2_57k();
+        }
+        else {
+            SelectPort2Slow();
+        }
+    }
+
+    if(argc > 2) {
+        fileHandle = CreateFileAndGetPath(argv[2], BUFFER);
+        printf("File path: %s\r\n\r\n", BUFFER);
+    }
+
+    currentCpu = GetCpu();
     printf("Connecting... ");
     
     result = SerialReceive((byte*)&header, (uint)sizeof(header));
-    if(result == 1) {
-        printf("\r\n*** RS232 line is not high");
-        return 1;
-    }
-    if(result == 2) {
-        printf("\r\n*** Data reception timeout");
-        return 2;
-    }
+    ProcessReceiveError(result);
 
-    crc = crc16((byte*)&header, (uint)(sizeof(header)-2));
-    if(crc != header.crc) {
-        printf("\r\n*** Header CRC mismtach. Received: 0x%x. Calculated: 0x%x.", header.crc, crc);
-        SerialSendByte(3);
-        return 3;
+    calculatedCrc = crc16((byte*)&header, (uint)(sizeof(header)-2));
+    if(calculatedCrc != header.crc) {
+        printf("\r\n*** Header CRC mismtach. Received: 0x%x. Calculated: 0x%x.", header.crc, calculatedCrc);
+        SerialSendByte(3, false);
+        return 5;
     }
 
     printf("\r\nFile name: %s\r\n", header.fileName);
@@ -98,37 +114,32 @@ int main(char** argv, int argc) {
     printf("Receiving: ");
     remaining = header.fileSize;
 
-    fileHandle = CreateFile(header.fileName);
+    if(fileHandle == 0) {
+        fileHandle = CreateFile(header.fileName);
+    }
 
-    SerialSendByte(0); //Send the header confirmation only after we are ready to get data.
+    SerialSendByte(0, true); //Send the header confirmation only after we are ready to get data.
 
     chunkSize = remaining > MAX_CHUNK_SIZE ? MAX_CHUNK_SIZE : remaining;
     while(remaining > 0) {
         result = SerialReceive(BUFFER, chunkSize+2);
-        if(result == 1) {
-            printf("\r\n*** RS232 line is not high");
-            Terminate(1);
-        }
-        if(result == 2) {
-            printf("\r\n*** Data reception timeout");
-            Terminate(2);
-        }
+        ProcessReceiveError(result);
 
-        crc = crc16(BUFFER, chunkSize);
-        if(crc != *(uint*)(BUFFER+chunkSize)) {
+        calculatedCrc = crc16(BUFFER, chunkSize);
+        if(calculatedCrc != *(uint*)(BUFFER+chunkSize)) {
             //printf("\r\n*** Data CRC mismtach. Received: 0x%x. Calculated: 0x%x.", header.crc, crc);
             printf("!");
-            SerialSendByte(1);
+            SerialSendByte(1, true);
             continue;
         }
         
         result = WriteToFile(BUFFER, chunkSize);
         if(result != 0) {
-            SerialSendByte(result);
+            SerialSendByte(result, false);
             Terminate(result);
         }
 
-        SerialSendByte(0);
+        SerialSendByte(0, true);
         printf(".");
 
         remaining -= chunkSize;
@@ -136,6 +147,7 @@ int main(char** argv, int argc) {
     }
 
     printf("\r\nDone!");
+    Terminate(0);
     return 0;
 }
 
@@ -162,6 +174,9 @@ bool IsDos2() __naked
 
 void Terminate(byte errorCode)
 {
+    if(currentCpu != CPU_Z80) {
+        SetCpu(currentCpu);
+    }
     if(fileHandle != 0) {
         CloseFile(fileHandle);
     }
@@ -185,43 +200,155 @@ void TerminateCore(byte errorCode) __naked
     __endasm;
 }
 
-
-#define POLY 0x8408
-
-/*
-//                                      16   12   5
-// this is the CCITT CRC 16 polynomial X  + X  + X  + 1.
-// This works out to be 0x1021, but the way the algorithm works
-// lets us use 0x8408 (the reverse of the bit pattern).  The high
-// bit is always assumed to be set, thus we only use 16 bits to
-// represent the 17 bit value.
-*/
-unsigned int crc16(byte* data_p, unsigned int length)
+void SerialSendByte(byte value, bool printOnError)
 {
-      unsigned char i;
-      unsigned long data;
-      unsigned long crc = 0xffff;
+    if(currentCpu != CPU_Z80) {
+        SetCpu(CPU_Z80);
+    }
 
-      if (length == 0)
-            return (~crc);
+    BUFFER[0]=value;
+    BUFFER[1]=value;
+    BUFFER[2]=value;
+    BUFFER[3]=value;
+    result=SerialSend(BUFFER,4);
 
-      do
-      {
-            for (i=0, data=(unsigned long)0xff & *data_p++;
-                 i < 8; 
-                 i++, data >>= 1)
-            {
-                  if ((crc & 0x0001) ^ (data & 0x0001))
-                        crc = (crc >> 1) ^ POLY;
-                  else  crc >>= 1;
-            }
-      } while (--length);
+    if(currentCpu != CPU_Z80) {
+        SetCpu(currentCpu);
+    }
 
-      crc = ~crc;
-      data = crc;
-      crc = (crc << 8) | (data >> 8 & 0xff);
+    if(result != 0) {
+        if(printOnError) {
+            printf("\r\n*** CTS line timeout", result);
+        }
+        Terminate(5);
+    }
+}
 
-      return (crc);
+void ProcessReceiveError(byte value)
+{
+    if(result == 1) {
+        printf("\r\n*** RTS line timeout");
+        Terminate(1);
+    }
+    if(result == 2) {
+        printf("\r\n*** Data reception timeout");
+        Terminate(2);
+    }
+    if(result == 3) {
+        printf("\r\n*** Stop bit error");
+        Terminate(3);
+    }
+    if(result != 0) {
+        printf("\r\n*** Unexpected error: %i", result);
+        Terminate(4);
+    }
+}
+
+uint crc16(byte* data_p, uint length) __naked
+{
+    //XMODEM CRC calculation
+    //https://mdfs.net/Info/Comp/Comms/CRC16.htm
+    //"The XMODEM CRC is CRC-16 with a start value of &0000, the end value is not XORed, and uses a polynoimic of 0x1021."
+
+    __asm
+
+    ld b,d
+    ld c,e
+    ld de,#0
+
+bytelp:
+    PUSH BC
+    LD A,(HL)         ; Save count, fetch byte from memory
+
+; The following code updates the CRC in DE with the byte in A ---+
+    XOR D                     ; XOR byte into CRC top byte
+    LD B,#8                   ; Prepare to rotate 8 bits
+
+rotlp:
+    SLA E
+    ADC A,A             ; Rotate CRC
+    JP NC,clear         ; b15 was zero
+    LD D,A              ; Put CRC high byte back into D
+    LD A,E
+    XOR #0x21
+    LD E,A              ; CRC=CRC XOR &1021, XMODEM polynomic
+    LD A,D
+    XOR #0x10           ; And get CRC top byte back into A
+clear:
+    DEC B               ; Decrement bit counter
+    JP NZ,rotlp         ; Loop for 8 bits
+    LD D,A              ; Put CRC top byte back into D
+; ---------------------------------------------------------------+
+
+    INC HL
+    POP BC             ; Step to next byte, get count back
+    DEC BC             ; num=num-1
+    LD A,B
+    OR C
+    JP NZ,bytelp  ; Loop until num=0
+    RET
+
+    __endasm;
+}
+
+byte SerialReceive(byte* address, int length) 
+{
+    if(currentCpu != CPU_Z80) {
+        SetCpu(CPU_Z80);
+    }
+
+    result = is57k ? SerialReceive57k(address, length) : SerialReceiveSlow(address, length);
+
+    if(currentCpu != CPU_Z80) {
+        SetCpu(currentCpu);
+    }
+
+    return result;
+}
+
+byte GetCpu() __naked
+{
+    __asm
+
+    ld a,(#EXPTBL)
+    ld hl,#CHGCPU
+    call RDSLT
+    cp #0xC3 ;"JP", so routine is available
+    ld a,#0
+    ret nz   ;No CHGCPU routine? Return "Z80" then
+
+    push ix
+    push iy
+    ld iy,(#EXPTBL-1)
+    ld ix,#GETCPU
+    call CALSLT
+    pop iy
+    pop ix
+    ret ;Return current CPU in A
+
+    __endasm;
+}
+
+void SetCpu(byte cpu) __naked
+{
+    __asm
+
+    ;A = cpu
+
+    and #3
+    jr z,_SETCPU_GO ;Prevent turbo led from blinking on-off
+    or #128 ;Set turbo led
+_SETCPU_GO:
+    push ix
+    push iy
+    ld iy,(#EXPTBL-1)
+    ld ix,#CHGCPU
+    call CALSLT
+    pop iy
+    pop ix
+    ret
+
+    __endasm;
 }
 
 #define SUPPORT_LONG
