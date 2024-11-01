@@ -1,12 +1,22 @@
+;Routines to transfer data via the joystick port
+;using the standard RS232 serial protocol (2400-19200 bauds).
+;
+;Requires a Z80 clock speed of 3.57 MHz.
+;See README.md for pinout and protocol.
+;
+;Based on https://github.com/rolandvans/msx_softserial
+;
+;Use Nestor80 to build:
 ;N80 serial_slow.asm -ofe rel
-
-;RECEIVING AND SENDING RS232 DATA @9600 BITS/S  ON A STANDARD MSX 3.57MHz
-;CPU Z80
 
     area _CODE  ;To force SDAS output format
 
+;----------------------------------------------------------
 
-; Select joystick port 2 (default is port 1)
+;--- Select joystick port 2 (default is port 1)
+;
+;    C signature:
+;    void SelectPort2Slow()
 
 _SelectPort2Slow::
 	;Change "RES 6,A" into "SET 6,A"
@@ -29,14 +39,19 @@ _SelectPort2Slow::
 
 	ret
 
+;----------------------------------------------------------
 
-;TRANSFER 'BC' BYTES FROM JOY1, 'UP', PIN1 TO (HL)
-;MSX, Z80 3.58MHz
-;SETS CARRY BIT ON ERROR. A HOLDS ERROR CODE:
-;A=1 RTS TIMEOUT, A=2 STARTBIT TIMEOUT, A=3 STOPBIT ERROR
-
-;unsigned char SerialReceiveSlow(byte* address, int length)
-;HL=address, DE=length
+;--- Receive data
+;    Input:  HL = Destination address
+;            DE = Length
+;    Output: A = Error code:
+;                0: Ok
+;                1: RTS timeout
+;                2: Start bit timeout
+;                3: Stop bit error
+;
+;    C signature:
+;    unsigned char SerialReceiveSlow(unsigned char* address, int length)
 
 _SerialReceiveSlow::
 	LD	BC,#0099			;B=0 -> ~4 SECONDS TIME-OUT, C = VDP STATUS REGISTER
@@ -141,14 +156,17 @@ _FINISH:
 	EI
 	RET
 
-;--------------------------------------------------
+;----------------------------------------------------------
 
-;SEND 'BC' BYTES FROM [HL] TO PIN6, JOY2
-;MSX, Z80 3.58MHz
-
-;unsigned char SerialSendSlow(byte* address, int length)
-;HL=address, DE=length
-;Output: A=0: ok, 1: remote CTS timeout
+;--- Send data
+;    Input:  HL = Source address
+;            DE = Length
+;    Output: A = Error code:
+;                0: Ok
+;                1: CTS timeout
+;
+;    C signature:
+;    unsigned char SerialSendSlow(unsigned char* address, int length)
 
 _SerialSendSlow::
 	DI		;NO INTERRUPTS
@@ -255,10 +273,16 @@ DELAY:
 	JP	NZ,DELAY
 	RET
 
+;----------------------------------------------------------
 
-;SET SPEED FRO SERIAL COMMUNICATION: A=0 2400 BPS, A=1 4800 BPS, A=2 9600 BPS, A=3 19200 BPS
-
-;void SerialSetSpeedSlow(unsigned char speed)
+;--- Set the communication speed (default is 9600 bauds)
+;    Input: A = Speed (bauds):
+;               0: 2400
+;               1: 4800
+;               2: 9600
+;               3: 19200
+;    C signature:
+;    void SerialSetSpeedSlow(unsigned char speed)
 
 _SerialSetSpeedSlow::
 	AND	3
@@ -274,7 +298,6 @@ _SerialSetSpeedSlow::
 	LDIR
 	RET
 
-;DEFAULT SETTING 9600 BPS
 DELAY_START:
 	DB	28
 DELAY_BITS:
@@ -291,5 +314,3 @@ SERIALSPEEDDATA:
 	DB	28,18,16
 ;19200 BPS (3)
 	DB	11,6,4
-
-;END:

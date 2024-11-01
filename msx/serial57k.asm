@@ -1,7 +1,22 @@
+;Routines to transfer data via the joystick port
+;using the standard RS232 serial protocol (57600 bauds).
+;
+;Requires a Z80 clock speed of 3.57 MHz.
+;See README.md for pinout and protocol.
+;
+;Based on https://github.com/rolandvans/msx_softserial
+;
+;Use Nestor80 to build:
 ;N80 serial57k.asm -ofe rel
-;RECEIVING AND SENDING RS232 DATA @57600 BITS/S  ON A STANDARD MSX 3.58MHz 
 
-    area _CODE
+    area _CODE  ;To force SDAS output format
+
+;----------------------------------------------------------
+
+;--- Select joystick port 2 (default is port 1)
+;
+;    C signature:
+;    void SelectPort2_57k()
 
 _SelectPort2_57k::
 	;Change "RES 6,A" into "SET 6,A"
@@ -24,14 +39,19 @@ _SelectPort2_57k::
 
 	ret
 
+;----------------------------------------------------------
 
-;TRANSFER 'BC' BYTES FROM JOY2, 'UP', PIN1 TO (HL)
-;MSX, Z80 3.58MHz 57600bps
-;SETS CARRY BIT ON ERROR. A HOLDS ERROR CODE:
-;A=1 RTS TIMEOUT, A=2 STARTBIT TIMEOUT, A=3 STOPBIT ERROR
-
-;unsigned char SerialReceive57k(byte* address, int length)
-;HL=address, DE=length
+;--- Receive data
+;    Input:  HL = Destination address
+;            DE = Length
+;    Output: A = Error code:
+;                0: Ok
+;                1: RTS timeout
+;                2: Start bit timeout
+;                3: Stop bit error
+;
+;    C signature:
+;    unsigned char SerialReceive57k(unsigned char* address, int length)
 
 _SerialReceive57k::
 	LD A,E	; FAST LOOP WITH BC (GRAUW, FAST LOOPS)
@@ -91,13 +111,6 @@ _SetRTSto1_57k1:
     ld c,e
 
 	LD E,#01	;FOR FASTER 'AND' OPERATION 'AND r'(5) VS. 'AND n'(8)
-	;IN A,(#A2)
-	;AND E
-	;JR NZ,.FIRSTSTARTBIT	;RS232 LINE SHOULD BE HIGH, OTHERWISE STOP
-	;LD A,#01	;ERROR, RS232 LINE NOT READY
-	;SCF
-	;EI
-	;RET
 ;THE NEXT PART IS TIME CRITICAL. EVERY CYCLE COUNTS
 .FIRSTSTARTBIT:		;WAIT FOR FIRST STARTBIT
 	IN A,(#A2)
@@ -222,14 +235,17 @@ _SetRTSto1_57k1:
 	pop bc
 	ret
 
-;--------------------------------------------------
+;----------------------------------------------------------
 
-;SEND 'BC' BYTES FROM [HL] TO PIN6, JOY2
-;MSX, Z80 3.58MHz 57600bps
-
-;void SerialSend(byte* address, int length)
-;HL=address, DE=length
-;Output: A=0: ok, 1: remote CTS timeout
+;--- Send data
+;    Input:  HL = Source address
+;            DE = Length
+;    Output: A = Error code:
+;                0: Ok
+;                1: CTS timeout
+;
+;    C signature:
+;    unsigned char SerialSend57k(unsigned char* address, int length)
 
 _SerialSend57k::
 	DI	;NO INTERRUPTS

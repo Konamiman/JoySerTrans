@@ -1,4 +1,11 @@
 /*
+    File receiver via joystick port v1.0
+    By Konamiman, 11/2024
+
+    See README.md for the joystick port pinout and the protocol.
+
+    Use SDCC to build (see also serial_slow.asm and serial57k.asm):
+
     sdcc --code-loc 0x180 --data-loc 0 -mz80 --disable-warning 85 --disable-warning 196
          --no-std-crt0 crt0_msxdos_advanced.rel serial_slow.rel serial57k.rel jget.c
 
@@ -13,7 +20,7 @@
 #include "printf.h"
 
 const char* strTitle=
-    "Serial via joystick port file receiver v1.0\r\n"
+    "File receiver via joystick port v1.0\r\n"
     "By Konamiman, 11/2024\r\n"
     "\r\n";
     
@@ -22,7 +29,10 @@ const char* strUsage=
     "\r\n"
     "<port>: 1 or 2\r\n"
     "<speed> (BPS): 0 = 2400, 1 = 4800, 2 = 9600, 3 = 19200, 4 = 57600\r\n"
-    "<file path>: if omitted, received file name in current directory";
+    "<file path>: if omitted, received file name in current directory\r\n"
+    "\r\n"
+    "Joystick port pinout and protocol:\r\n"
+    "https://github.com/Konamiman/JoySerTrans";
     
 const char* strInvParam = "Invalid parameter";
 const char* strCRLF = "\r\n";
@@ -103,7 +113,7 @@ int main(char** argv, int argc) {
     calculatedCrc = crc16((byte*)&header, (uint)(sizeof(header)-2));
     if(calculatedCrc != header.crc) {
         printf("\r\n*** Header CRC mismtach. Received: 0x%x. Calculated: 0x%x.", header.crc, calculatedCrc);
-        SerialSendByte(3, false);
+        SerialSendByte(2, false);
         return 5;
     }
 
