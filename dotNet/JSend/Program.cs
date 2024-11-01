@@ -20,18 +20,28 @@ By Konamiman, 2024
 
         if(args.Length < 3) {
             Console.WriteLine(
-@"Usage: jst <file> <port> <bauds> [<filename to send>]
+@"Usage: jsend <file> <port> <bauds> [/f:<filename to send>]
+
+Protocol and pinout for the MSX joystick port:
+https://github.com/Konamiman/JoySerTrans
 ");
             return 0;
         }
 
         try {
+            string filenameToSend = null;
+            for(var i=3; i<args.Length; i++) {
+                if(args[i].StartsWith("/f:", StringComparison.InvariantCultureIgnoreCase)) {
+                    filenameSent = args[i].Substring(3);
+                }
+            }
+
             var sender = new Sender(args[1], int.Parse(args[2]));
             sender.HeaderSent += Sender_HeaderSent;
             sender.DataSent += Sender_DataSent;
             Console.CursorVisible = false;
 
-            sender.Send(args[0], args.Length > 3 ? args[3] : null);
+            sender.Send(args[0], filenameToSend);
 
             Console.WriteLine("100%  ");
             Console.WriteLine("Done!");

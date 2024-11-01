@@ -7,7 +7,7 @@
     <Nullable>disable</Nullable>
     <RootNamespace>Konamiman.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
     <Authors>Konamiman</Authors>
-    <AssemblyName>jst</AssemblyName>
+    <AssemblyName>jsend</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

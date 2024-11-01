@@ -5,12 +5,14 @@ using System.IO;
 using System.IO.Ports;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace Konamiman.JoySerTrans
 {
     internal class Sender(string portName, int bauds)
     {
         const int CHUNK_SIZE = 1024;
+        const int DATA_SEND_RCV_TIMEOUT_MS = 5000;
 
         SerialPort port = null;
         FileStream fileStream = null;
@@ -55,37 +57,63 @@ namespace Konamiman.JoySerTrans
             var fileLength = fileInfo.Length;
 
 #if !SIMULATE
-            var port = new SerialPort(portName, bauds, Parity.None, dataBits: 8) { Handshake = Handshake.None, StopBits = StopBits.One, WriteTimeout = 5000, ReadTimeout = 5000 };
+            var port = new SerialPort(portName, bauds, Parity.None, dataBits: 8) { Handshake = Handshake.RequestToSend, StopBits = StopBits.One, WriteTimeout = DATA_SEND_RCV_TIMEOUT_MS, ReadTimeout = DATA_SEND_RCV_TIMEOUT_MS };
             port.Open();
 #endif
 
+            int waitedTimes = 0;
+
+            void Wait(string errorMessage)
+            {
+                if(waitedTimes > DATA_SEND_RCV_TIMEOUT_MS/10) {
+                    throw new Exception(errorMessage);
+                }
+
+                Thread.Sleep(10);
+                waitedTimes++;
+            }
+
             // Define a local function for sending a chunk of data.
             // After sending the chunk it expects the peer to send one byte:
-            // 0 = Ok, 1 = CRC error, >1 = Other error.
+            // 0 = Ok, 1 = CRC error (will trigger a retry), 2 = Header CRC error, >2 = Other error.
 
             void sendData(byte[] data)
             {
+                waitedTimes = 0;
                 var retries = 0;
                 while(true) {
 #if SIMULATE
                     System.Threading.Thread.Sleep(10);
                     var result = data.Length > 19 ? 1 : 0;
 #else
+                    while(port.CtsHolding) Wait("CTS line timeout (peer is not ready to receive data)");
                     port.Write(data, 0, data.Length);
-                    var result = port.ReadByte();
+ 
+                    var resultBytes = new byte[4];
+                    while(port.CtsHolding) Wait("RTS line timeout (peer is not ready to send status data)");
+
+                    while(port.BytesToRead < resultBytes.Length) Wait("Status data reception timeout");
+                    port.Read(resultBytes, 0, resultBytes.Length);
+
+                    var resultBytesByCount = resultBytes.GroupBy(x => x).Select(x => new { Value = x.First(), Count = x.Count() } ).ToArray();
+                    var result = resultBytesByCount.OrderByDescending(x => x.Count).First().Value;
 #endif
+
                     if(result == 0) {
                         return;
                     }
                     else if(result == 1) {
                         retries++;
-                        if(retries > 5) {
+                        if(retries > 4) {
                             throw new Exception("Too many CRC errors");
                         }
                         continue;
                     }
+                    else if(result == 2) {
+                        throw new Exception("CRC error in the header");
+                    }
                     else {
-                        throw new Exception($"Peer closed connection with code {result}");
+                        throw new Exception($"Peer closed connection with code 0x{result:X2}");
                     }
                 }
             }
@@ -123,45 +151,28 @@ namespace Konamiman.JoySerTrans
 
 
         /*
-        // https://stjarnhimlen.se/snippets/crc-16.c
-        //                                      16   12   5
-        // this is the CCITT CRC 16 polynomial X  + X  + X  + 1.
-        // This works out to be 0x1021, but the way the algorithm works
-        // lets us use 0x8408 (the reverse of the bit pattern).  The high
-        // bit is always assumed to be set, thus we only use 16 bits to
-        // represent the 17 bit value.
+         * XMODEM CRC calculation
+         * https://mdfs.net/Info/Comp/Comms/CRC16.htm
+         * "The XMODEM CRC is CRC-16 with a start value of &0000, the end value is not XORed, and uses a polynoimic of 0x1021."
         */
         private static ushort CalculateCrc(byte[] data, int? length = null)
         {
-            const ushort POLY = 0x8408;
+            const ushort POLY = 0x1021;
 
-            int i;
-            uint dataByte;
-            int dataIndex = 0;
-            uint crc = 0xffff;
             length ??= data.Length;
+            int crc = 0;
 
-            if(length == 0) {
-                return ((ushort)~crc);
+            for(var dataIndex=0; dataIndex < length; dataIndex++) {
+                crc = crc ^ (data[dataIndex] << 8);      /* Fetch byte from memory, XOR into CRC top byte*/
+                for(var i = 0; i < 8; i++) {       /* Prepare to rotate 8 bits */
+                    crc = crc << 1;            /* rotate */
+                    if((crc & 0x10000) != 0) {           /* bit 15 was set (now bit 16)... */
+                        crc = (crc ^ POLY) & 0xFFFF;     /* XOR with XMODEM polynomic */
+                    }                                    /* and ensure CRC remains 16-bit value */
+                }                              /* Loop for 8 bits */
             }
 
-            do {
-                for(i = 0, dataByte = (uint)0xff & data[dataIndex++]; i < 8; i++, dataByte >>= 1)
-                {
-                    if(((crc & 0x0001) ^ (dataByte & 0x0001)) != 0) {
-                        crc = (crc >> 1) ^ POLY;
-                    }
-                    else {
-                        crc >>= 1;
-                    }
-                }
-            } while(--length > 0);
-
-            crc = ~crc;
-            dataByte = crc;
-            crc = (crc << 8) | (dataByte >> 8 & 0xff);
-
-            return (ushort)crc;
+            return (ushort)crc;                /* Return updated CRC */
         }
     }
 }
