@@ -96,7 +96,7 @@ namespace Konamiman.JoySerTrans
                     port.Read(resultBytes, 0, resultBytes.Length);
 
                     var resultBytesByCount = resultBytes.GroupBy(x => x).Select(x => new { Value = x.First(), Count = x.Count() } ).ToArray();
-                    var result = resultBytesByCount.OrderByDescending(x => x.Count).First().Value;
+                    var result = resultBytesByCount.OrderByDescending(x => x.Count).ThenByDescending(x => x.Value).First().Value;
 #endif
 
                     if(result == 0) {
