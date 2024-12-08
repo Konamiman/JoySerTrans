@@ -8,6 +8,7 @@
     <RootNamespace>Konamiman.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
     <Authors>Konamiman</Authors>
     <AssemblyName>jsend</AssemblyName>
+    <AssemblyVersion>1.0</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>

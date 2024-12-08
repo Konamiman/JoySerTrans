@@ -1,13 +1,13 @@
 /*
     File receiver via joystick port v1.0
-    By Konamiman, 11/2024
+    By Konamiman, 12/2024
 
     See README.md for the joystick port pinout and the protocol.
 
     Use SDCC to build (see also serial_slow.asm and serial57k.asm):
 
     sdcc --code-loc 0x180 --data-loc 0 -mz80 --disable-warning 85 --disable-warning 196
-         --no-std-crt0 crt0_msxdos_advanced.rel serial_slow.rel serial57k.rel jget.c
+         --no-std-crt0 crt0_msxdos_advanced.rel serial_slow.REL serial57k.REL jget.c
 
     hex2bin -e com jget.ihx (or: objcopy -I ihex -O binary jget.ihx jget.com)
 */
@@ -21,7 +21,7 @@
 
 const char* strTitle=
     "File receiver via joystick port v1.0\r\n"
-    "By Konamiman, 11/2024\r\n"
+    "By Konamiman, 12/2024\r\n"
     "\r\n";
     
 const char* strUsage=

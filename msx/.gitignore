@@ -4,6 +4,9 @@
 *.map
 *.noi
 *.rel
+*.REL
 *.sym
 *.asm
 *.com
+*.COM
+

@@ -15,7 +15,7 @@ internal class Program
 
         Console.WriteLine(
 @"Simple serial file sender v1.0
-By Konamiman, 2024
+By Konamiman, 12/2024
 ");
 
         if(args.Length < 3) {

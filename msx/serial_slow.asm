@@ -7,7 +7,7 @@
 ;Based on https://github.com/rolandvans/msx_softserial
 ;
 ;Use Nestor80 to build:
-;N80 serial_slow.asm -ofe rel
+;N80 serial_slow.asm
 
     area _CODE  ;To force SDAS output format
 
